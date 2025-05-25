@@ -4,9 +4,11 @@
 
 This is a fast raytracing implementation on PS1 hardware using Fixed Point arithmetics for computing all linear algebra operations, also utilizing some GTE operations. Inspired by [Ray Tracing In One Weekend](https://raytracing.github.io/books/RayTracingInOneWeekend.html).
 
-I used [PSn00bSDK](https://github.com/Lameguy64/PSn00bSDK) for creating this project.
+Without fixed point operations, a single frame take about 17 seconds to render!
 
 ![](https://github.com/SimoSbara/ps1-raytracing/blob/main/raytracing_ps1.gif)
+
+I used [PSn00bSDK](https://github.com/Lameguy64/PSn00bSDK) for creating this project.
 
 ### Testing
 This program is tested on [DuckStation](https://www.duckstation.org/) PS1 emulator.
