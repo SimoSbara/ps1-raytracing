@@ -1,0 +1,5 @@
+cmake configuration first time:
+cmake --preset default .
+
+compilation:
+cmake --build ./build
