@@ -28,31 +28,46 @@ typedef struct
 
 uint8_t testBuffer[SCREEN_XRES * SCREEN_YRES * 3];
 
-typedef struct 
+typedef struct _Plane 
 {
     VECTOR point;   
 	SVECTOR normal; 
 } Plane;
 
-typedef struct
+typedef struct _Sphere
 {
 	VECTOR center;
+	SVECTOR color;
 	int radius;
 	int16_t reflectivity;
 } Sphere;
 
-typedef struct 
+typedef struct _Light
 {
     VECTOR position;
     SVECTOR color;
 } Light;
 
+typedef struct _Ray
+{
+	VECTOR origin;
+	VECTOR direction;
+} Ray;
+
+
 //screenview variables
 SVECTOR deltaU;
 SVECTOR deltaV;
-SVECTOR pix00; //upper left pixel, start point
+VECTOR pix00; //upper left pixel, start point
+SVECTOR camera = {0, 0, 0};
 
+//list of spheres
+#define NUM_SPHERES	 3
+Sphere spheres[NUM_SPHERES];
+Sphere lightsphere  = { {0, 0, 0}, {ONE, ONE, ONE}, HALF, HALF };
 
+//ambient light
+SVECTOR ambient = {0, 0, 0};
 
 // inline Vec3 phong_shading(Vec3 hit_point, Vec3 hit_normal, Vec3 view_dir, Light light, Vec3 object_color) 
 // {
@@ -76,16 +91,14 @@ SVECTOR pix00; //upper left pixel, start point
 //     return color;
 // }
 
-inline SVECTOR PhongShading(Light* light, SVECTOR* dir, VECTOR* hitpoint, SVECTOR* hitnormal, SVECTOR* objcolor)
+inline SVECTOR PhongShading(Light* light, Ray* ray, VECTOR* hitpoint, SVECTOR* hitnormal, SVECTOR* objcolor)
 {
-	//Vec3 ambient = vec_scale(object_color, 0.1);  // Componente ambientale
-
 	SVECTOR diffuse, specular, color;
 
     //diffuse
 	SVECTOR lightdir;
 	VECTOR sub;
-	
+
 	VecSubFixed32(&light->position, hitpoint, &sub);
 	NormFixed32(&sub, &lightdir);
     
@@ -98,8 +111,8 @@ inline SVECTOR PhongShading(Light* light, SVECTOR* dir, VECTOR* hitpoint, SVECTO
 
     //specular
 	SVECTOR n, reflectdir;
-	NormFixed16(dir, &n);
-	VecReflect(&lightdir, hitnormal, &reflectdir);
+	NormFixed32(&ray->direction, &n);
+	VecReflect16(&lightdir, hitnormal, &reflectdir);
 	NormFixed16(&reflectdir, &reflectdir);
 
 	int dotspec = DotProductFixed16(&n, &reflectdir);
@@ -114,6 +127,7 @@ inline SVECTOR PhongShading(Light* light, SVECTOR* dir, VECTOR* hitpoint, SVECTO
 
 	//combining diffuse and specular
 	VecAddFixed16(&diffuse, &specular, &color);
+	//VecAddFixed16(&color, &ambient, &color);
 
 	color.vx = min(color.vx, ONE);
 	color.vy = min(color.vy, ONE);
@@ -157,19 +171,14 @@ inline int RayTracePlane(SVECTOR* orig, SVECTOR* dir, Plane* plane, int* t)
 	return 0;
 }
 
-inline int RayTraceSphere(SVECTOR* orig, SVECTOR* dir, Sphere* sphere, int* t)
+inline int RayTraceSphere(Ray* ray, Sphere* sphere, int* t)
 {
-	VECTOR sphereorig32 = { sphere->center.vx, sphere->center.vy, sphere->center.vz };
-	VECTOR orig32 = { orig->vx, orig->vy, orig->vz };
-	VECTOR dir32 = { dir->vx, dir->vy, dir->vz };
 	VECTOR oc;
 
-	oc = sphere->center;
+	VecSubFixed32(&sphere->center, &ray->origin, &oc);
 
-	//oc = VecInvertFixed32(&oc);
-
-	int a = DotProductFixed32(&dir32, &dir32);
-	int b = MulFixed32(DotProductFixed32(&dir32, &oc), -TWO);
+	int a = DotProductFixed32(&ray->direction, &ray->direction);
+	int b = MulFixed32(DotProductFixed32(&ray->direction, &oc), -TWO);
 	int c = DotProductFixed32(&oc, &oc) - MulFixed(sphere->radius, sphere->radius);
 
 	int d1 = MulFixed32(b, b);
@@ -195,39 +204,68 @@ inline int RayTraceSphere(SVECTOR* orig, SVECTOR* dir, Sphere* sphere, int* t)
 	return 0;
 }
 
-inline SVECTOR TraceRayFixed(SVECTOR* orig, SVECTOR* dir, Plane* floor, Sphere* sphere, Light* light)
+#define MAX_DEPTH	1
+
+int TraceRayFixed(Ray* ray, Plane* floor, Light* light, SVECTOR* color, int depth)
 {
-	SVECTOR color = { 0, 0, 0 };
 	SVECTOR hitnormal;
 	VECTOR hitpoint;
-	//SVECTOR viewdir = VecInvertFixed16(&dir);// VecScaleFixed16(&dir, -ONE);
-
 	int t;
 
-	if (RayTraceSphere(orig, dir, sphere, &t))
+	// if (RayTraceSphere(orig, dir, &lightsphere, &t))
+	// 	return lightsphere.color;
+
+	for(int i = 0; i < NUM_SPHERES; i++)
 	{
-		SVECTOR objcolor = {ONE, ONE, 0};
+		Sphere* s = &spheres[i];
 
-		//trick 
-		hitpoint.vx = MulFixed32(dir->vx, t) - sphere->center.vx;
-		hitpoint.vy = MulFixed32(dir->vy, t) - sphere->center.vy;
-		hitpoint.vz = MulFixed32(dir->vz, t) - sphere->center.vz;
-		NormFixed32(&hitpoint, &hitnormal);
+		if (RayTraceSphere(ray, s, &t))
+		{
+			//trick 
+			VecScaleFixed32(&ray->direction, t, &hitpoint);
+			VecSubFixed32(&hitpoint, &s->center, &hitpoint);
+			NormFixed32(&hitpoint, &hitnormal);
 
-		color = PhongShading(light, dir, &hitpoint, &hitnormal, &objcolor);
+			if(depth < MAX_DEPTH)
+			{
+				Ray reflected;
+				reflected.origin = hitpoint;
+				VecReflect32(&ray->direction, &hitnormal, &reflected.direction);
+
+				if(TraceRayFixed(&reflected, floor, light, color, depth + 1))
+				{
+					//VecScaleFixed16(&color, s->reflectivity, &color);
+					//SVECTOR fcolor = {ONE, ONE, 0};
+
+					//color->vx = ONE;
+					//color->vy = ONE;
+					//color->vz = 0;
+
+					return 1;
+				}
+			}
+			else
+				*color = s->color;
+			
+			*color = PhongShading(light, ray, &hitpoint, &hitnormal, color);
+
+			return 1;//PhongShading(light, ray, &hitpoint, &hitnormal, &color);
+		}
+		// else if (RayTracePlane(orig, dir, floor, &t))
+		// {
+		// 	// Colore del pavimento con Phong shading
+		// 	int16_t gray = FloatToFixed16(0.6f);
+		// 	//color = { gray, gray, gray };  // Grigio per il pavimento
+		// 	//color = { gray, gray, gray };  // Grigio per il pavimento
+		// 	//color = object_color;
+		// 	//color = phong_shading(hit_point, hit_normal, view_dir, light, object_color);
+		// 	//color = PhongShading(light, &hitpoint, &hitnormal, &color);
+		// }
 	}
-	else if (RayTracePlane(orig, dir, floor, &t))
-	{
-		// Colore del pavimento con Phong shading
-		int16_t gray = FloatToFixed16(0.6f);
-		//color = { gray, gray, gray };  // Grigio per il pavimento
-		//color = { gray, gray, gray };  // Grigio per il pavimento
-		//color = object_color;
-		//color = phong_shading(hit_point, hit_normal, view_dir, light, object_color);
-		//color = PhongShading(light, &hitpoint, &hitnormal, &color);
-	}
 
-	return color;
+	*color = ambient;
+
+	return 0;
 }
 
 SVECTOR raycolor(SVECTOR* dir)
@@ -284,14 +322,17 @@ void PrepareCamera(int w, int h)
 
 	VecScaleFixed16(&viewportU, HALF, &viewportCompU);
 	VecScaleFixed16(&viewportV, HALF, &viewportCompV);
+	VecSubFixed16(&camera, &focal, &viewportUL);
 	VecSubFixed16(&focal, &viewportCompU, &viewportUL);
 	VecSubFixed16(&viewportUL, &viewportCompV, &viewportUL);
 
 	//pix start x0 y0
-	SVECTOR pixCompUV;
+	SVECTOR pixCompUV, pix00s;
 	VecAddFixed16(&deltaU, &deltaV, &pixCompUV);
 	VecScaleFixed16(&pixCompUV, HALF, &pixCompUV);
-	VecAddFixed16(&viewportUL, &pixCompUV, &pix00);
+	VecAddFixed16(&viewportUL, &pixCompUV, &pix00s);
+
+	Vec16ToVec32(&pix00s, &pix00);
 }
 
 void RayTrace(void* buffer, int xlight, int ylight)
@@ -307,16 +348,20 @@ void RayTrace(void* buffer, int xlight, int ylight)
 	int16_t zsphere = FloatToFixed16(-3 - rand() % 3);
 
 	//int16_t zsphere = FloatToFixed16(rand() % 3 - 7);
-	SVECTOR camera = {0, 0, 0};
-	Sphere sphere = { {0, 0, -ONE}, HALF, HALF };
 	Plane floor = {{0, -TEN, 0}, {0, -ONE, 0}};
-	Light light = {{xlight, ylight, TWO}, {ONE, ONE, ONE}};
+	Light light = {{xlight, ylight, ONE}, {ONE, ONE, ONE}};
 
-	SVECTOR posx = { 0, 0, 0 };
-	SVECTOR posy = { 0, 0, 0 };
-	SVECTOR dir;
+	VECTOR posx = { 0, 0, 0 };
+	VECTOR posy = { 0, 0, 0 };
+	SVECTOR color;
+	Ray ray;
 
 	int x, y;
+
+	lightsphere.center = light.position;
+	lightsphere.color = light.color;
+
+	Vec16ToVec32(&camera, &ray.origin);
 
 	for(y = 0; y < SCREEN_YRES; y++)
 	{
@@ -326,11 +371,10 @@ void RayTrace(void* buffer, int xlight, int ylight)
 
 		for(x = 0; x < SCREEN_XRES; x++)
 		{
-			VecAddFixed16(&pix00, &posx, &dir);
-			VecAddFixed16(&dir, &posy, &dir);
+			VecAddFixed32(&pix00, &posx, &ray.direction);
+			VecAddFixed32(&ray.direction, &posy, &ray.direction);
 
-			SVECTOR color = TraceRayFixed(&camera, &dir, &floor, &sphere, &light);
-			//SVECTOR color = raycolor(&normdir);
+			TraceRayFixed(&ray, &floor, &light, &color, 1);
 
 			//lowering precision to admit 0-255 range
 			//from 9.7 to 16 int
@@ -339,10 +383,14 @@ void RayTrace(void* buffer, int xlight, int ylight)
 			ptr->b = MulFixedVar(color.vz >> 5, MAX_GRAY, 7) >> 7;
 			ptr++;
 
-			VecAddFixed16(&posx, &deltaU, &posx);
+			posx.vx += deltaU.vx;
+			posx.vy += deltaU.vy;
+			posx.vz += deltaU.vz;
 		}
 
-		VecAddFixed16(&posy, &deltaV, &posy);
+		posy.vx += deltaV.vx;
+		posy.vy += deltaV.vy;
+		posy.vz += deltaV.vz;
 	}
 	
 	LoadImage(&rect, buffer);
@@ -380,50 +428,34 @@ int main(int argc, const char **argv)
 
 	PrepareCamera(SCREEN_XRES, SCREEN_YRES);
 
-	int xstart = FloatToFixed16(4);
-	int ystart = FloatToFixed16(4);
-	int xstep = FloatToFixed16(0.25f);
-	int ystep = FloatToFixed16(0.25f);
+	Sphere s1 = { {-HALF, 0, -TWO}, {0, ONE, 0}, HALF, HALF };
+	Sphere s2 = { {HALF, 0, -TWO}, {ONE, 0, 0}, HALF, HALF };
+	Sphere s3 = { {0, ONE, -TWO}, {0, 0, ONE}, HALF, HALF };
+	spheres[0] = s1;
+	spheres[1] = s2;
+	spheres[2] = s3;
 
-	int x = xstart;
-	int y = ystart;
+	lightsphere.radius = FixedToFloat(0.1f);
 
-
-	for (;;)
+	while(true)
 	{
-		
-		RayTrace(testBuffer, x, y);
-		y -= ystep;
+		int xstart = FloatToFixed16(4);
+		int ystart = FloatToFixed16(4);
+		int xstep = FloatToFixed16(0.25f);
+		int ystep = FloatToFixed16(0.25f);
 
-		if(y <= -FOUR)
-			break;
-	}
+		int x = xstart;
+		int y = ystart;
 
-	y = ystart;
-	x = xstart;
+		for (;;)
+		{
+			RayTrace(testBuffer, x, y);
+			x -= xstep;
+			y -= ystep;
 
-	for (;;)
-	{
-		
-		RayTrace(testBuffer, x, y);
-		x -= xstep;
-
-		if(x <= -FOUR)
-			break;
-	}
-
-	y = ystart;
-	x = xstart;
-
-	for (;;)
-	{
-		
-		RayTrace(testBuffer, x, y);
-		x -= xstep;
-		y -= ystep;
-
-		if(x <= -FOUR)
-			break;
+			if(x <= -FOUR)
+				break;
+		}
 	}
 
 	return 0;

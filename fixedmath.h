@@ -12,6 +12,22 @@ const int16_t FOUR = 4 << 12;
 const int16_t FIVE = 5 << 12;
 const int16_t TEN = 10 << 12;
 
+//copy
+inline void Vec32ToVec16(VECTOR* v1, SVECTOR* v2)
+{
+    v2->vx = v1->vx;
+    v2->vy = v1->vy;
+    v2->vz = v1->vz;
+}
+
+//copy
+inline void Vec16ToVec32(SVECTOR* v1, VECTOR* v2)
+{
+    v2->vx = v1->vx;
+    v2->vy = v1->vy;
+    v2->vz = v1->vz;
+}
+
 //fixed n.12 to float 
 inline float FixedToFloat(int input)
 {
@@ -173,13 +189,27 @@ inline void NormFixed32(VECTOR* v, SVECTOR* n)
 }
 
 //a ray reflects from the normal of the surface
-inline void VecReflect(SVECTOR* v, SVECTOR* n, SVECTOR* r) 
+inline void VecReflect16(SVECTOR* v, SVECTOR* n, SVECTOR* r) 
 {
     SVECTOR nscaled;
 	int scaling = MulFixed(TWO, DotProductFixed16(v, n));
 	VecScaleFixed16(n, scaling, &nscaled);
     VecSubFixed16(v, &nscaled, r);
 }
+
+inline void VecReflect32(VECTOR* v, SVECTOR* n, VECTOR* r) 
+{
+    VECTOR nscaled;
+    VECTOR n32;
+
+    Vec16ToVec32(n, &n32);
+
+	int scaling = MulFixed(TWO, DotProductFixed32(v, &n32));
+	VecScaleFixed32(&n32, scaling, &nscaled);
+    VecSubFixed32(v, &nscaled, r);
+}
+
+
 
 inline int max(int a, int b)
 { 
