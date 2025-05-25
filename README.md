@@ -4,7 +4,7 @@
 
 This is a fast raytracing implementation on PS1 hardware using Fixed Point arithmetics for computing all linear algebra operations, also utilizing some GTE operations. Inspired by [Ray Tracing In One Weekend](https://raytracing.github.io/books/RayTracingInOneWeekend.html).
 
-Without fixed point operations, a single frame take about 17 seconds to render!
+Without fixed point operations, a single frame takes about 17 seconds to render!
 
 ![](https://github.com/SimoSbara/ps1-raytracing/blob/main/raytracing_ps1.gif)
 
